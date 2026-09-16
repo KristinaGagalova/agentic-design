@@ -60,3 +60,54 @@ def test_rmsd_does_not_accept_a_mirror_image():
     rng = np.random.default_rng(1)
     motif = rng.random((15, 3)) * 10
     assert kabsch_rmsd(motif, motif * [1, 1, -1]) > 0.5
+
+
+def test_parse_hotspots_accepts_the_run_spec_string():
+    from agentic_design.validate import parse_hotspots
+    assert parse_hotspots("[A8,A44,A70]") == [("A", 8), ("A", 44), ("A", 70)]
+    assert parse_hotspots(["A8", "B12"]) == [("A", 8), ("B", 12)]
+
+
+def test_check_motif_explains_itself_on_a_binder_trb(tmp_path, monkeypatch):
+    """Binder runs leave con_ref_pdb_idx empty; that used to surface as IndexError."""
+    from agentic_design import validate
+    monkeypatch.setattr(validate, "read_trb",
+                        lambda _: {"con_ref_pdb_idx": [], "con_hal_pdb_idx": []})
+    with pytest.raises(ValueError, match="check_binder"):
+        validate.check_motif(tmp_path / "x.trb", tmp_path / "x.pdb", tmp_path / "r.pdb")
+
+
+COMPLEX = """\
+ATOM      1  N   LEU A   8       0.000   0.000   0.000  1.00  0.00           N
+ATOM      2  CA  LEU A   8       1.000   0.000   0.000  1.00  0.00           C
+ATOM      3  C   LEU A   8       2.000   0.000   0.000  1.00  0.00           C
+ATOM      4  N   ILE A  44      20.000   0.000   0.000  1.00  0.00           N
+ATOM      5  CA  ILE A  44      21.000   0.000   0.000  1.00  0.00           C
+ATOM      6  C   ILE A  44      22.000   0.000   0.000  1.00  0.00           C
+ATOM      7  N   GLY B   1       1.000   3.000   0.000  1.00  0.00           N
+ATOM      8  CA  GLY B   1       2.000   3.000   0.000  1.00  0.00           C
+ATOM      9  C   GLY B   1       3.000   3.000   0.000  1.00  0.00           C
+"""
+
+
+def test_check_binder_separates_contacted_from_missed_hotspots(tmp_path):
+    from agentic_design.validate import check_binder
+    pdb = tmp_path / "d.pdb"
+    pdb.write_text(COMPLEX)
+
+    r = check_binder(pdb, pdb, "[A8,A44]")
+    # Binder sits ~3 A from A8 and ~18 A from A44.
+    assert r["hotspots_contacted"] == ["A8"]
+    assert r["hotspot_min_distance"]["A8"] < 5.0
+    assert r["hotspot_min_distance"]["A44"] > 15.0
+    assert r["binder_residues"] == 1
+    # Compared against itself, the target cannot have moved.
+    assert r["target_backbone_rmsd"] == pytest.approx(0, abs=1e-9)
+
+
+def test_check_binder_rejects_a_single_chain_design(tmp_path):
+    from agentic_design.validate import check_binder
+    pdb = tmp_path / "d.pdb"
+    pdb.write_text(PDB)
+    with pytest.raises(ValueError, match="no chain B"):
+        check_binder(pdb, pdb, "[A72]")

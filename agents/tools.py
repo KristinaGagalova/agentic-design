@@ -13,7 +13,7 @@ from mcp.server.fastmcp import FastMCP  # noqa: E402
 
 from agentic_design.runner import DesignRequest, run_design  # noqa: E402
 from agentic_design.trb import summarize_dir  # noqa: E402
-from agentic_design.validate import check_motif  # noqa: E402
+from agentic_design.validate import check_binder, check_motif  # noqa: E402
 
 mcp = FastMCP("agentic-design")
 
@@ -56,6 +56,22 @@ def validate_motif(run_name: str, reference_pdb: str) -> str:
     return json.dumps([
         check_motif(trb, trb.with_suffix(".pdb"), reference_pdb)
         for trb in sorted(outdir.glob("*.trb"))
+    ], indent=2)
+
+
+@mcp.tool()
+def validate_binder(run_name: str, reference_pdb: str, hotspot_res: str) -> str:
+    """Score a binder run: was the target held, and did the binder hit the hotspots?
+
+    hotspot_res: the same string the run spec used, e.g. "[A8,A44,A70]".
+    Hotspots bias RFdiffusion rather than constraining it, so a clean exit does
+    not mean the binder engaged the intended surface. Rank designs by how many
+    hotspots they contact and how large the interface is.
+    """
+    outdir = Path("results") / run_name
+    return json.dumps([
+        check_binder(pdb, reference_pdb, hotspot_res)
+        for pdb in sorted(outdir.glob("*.pdb"))
     ], indent=2)
 
 
