@@ -14,6 +14,7 @@ geometry. ProteinMPNN and refolding are not implemented.
 
 ## Start here
 
+- [Quickstart: run a demo with your OpenRouter key](demo-api/GETTING_STARTED.md)
 - [API demo using the existing ubiquitin experiments](demo-api/README.md)
 - [Setup and usage](docs/orchestration.md)
 - [Astra’s design](astra-design.md)
