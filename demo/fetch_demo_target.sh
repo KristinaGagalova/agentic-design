@@ -1,52 +1,78 @@
 #!/usr/bin/env bash
-# Fetch and clean the demo target (1UBQ, ubiquitin) for the runs in
-# demo/demo_configs.yaml.
+# =============================================================================
+# Fetch and clean a small demo target for RFdiffusion testing.
 #
-#     bash demo/fetch_demo_target.sh
+# Default: 1UBQ (ubiquitin) -- 76 residues, single chain, 1.8 A, no ligands,
+# no chain breaks. Small enough to run on CPU, and its Ile44 hydrophobic patch
+# (L8 / I44 / V70) is a real, well-characterised binding surface, so binder
+# hotspots are meaningful rather than arbitrary.
 #
-# Override with env vars: PDB_ID, CHAIN, TARGETS_DIR.
+# Alternatives:
+#   PDB_ID=1CRN  crambin, 46 res -- even smaller, but very hydrophobic and
+#                disulfide-rich, so a poor binder target. Fine for motif tests.
+#   PDB_ID=1L2Y  Trp-cage, 20 res -- NMR miniprotein, fastest possible check.
+#
+# Usage:
+#   bash fetch_demo_target.sh
+#   PDB_ID=1CRN CHAIN=A bash fetch_demo_target.sh
+# =============================================================================
+
 set -euo pipefail
 
+SRC="${SRC:-/mnt/src}"
 PDB_ID="${PDB_ID:-1UBQ}"
 CHAIN="${CHAIN:-A}"
-TARGETS_DIR="${TARGETS_DIR:-/mnt/src/data/targets}"
+TARGET_DIR="${TARGET_DIR:-${SRC}/data/targets}"
 
-raw="${TARGETS_DIR}/${PDB_ID}.pdb"
-clean="${TARGETS_DIR}/${PDB_ID}_clean.pdb"
+mkdir -p "${TARGET_DIR}"
+cd "${TARGET_DIR}"
 
-mkdir -p "$TARGETS_DIR"
+RAW="${PDB_ID}.pdb"
+CLEAN="${PDB_ID}_clean.pdb"
 
-if [[ ! -s "$raw" ]]; then
-    curl -fsSL "https://files.rcsb.org/download/${PDB_ID}.pdb" -o "$raw"
+# ---- Download ---------------------------------------------------------------
+if [ ! -f "${RAW}" ]; then
+  echo "==> Downloading ${PDB_ID} from RCSB"
+  wget -q "https://files.rcsb.org/download/${PDB_ID}.pdb" -O "${RAW}" \
+    || { echo "ERROR: download failed. Check the PDB ID." >&2; rm -f "${RAW}"; exit 1; }
 fi
 
-# Keep protein backbone/side-chain atoms for one chain only. HETATM records
-# (waters, ligands) are dropped: RFdiffusion models protein, and leaving
-# solvent in shifts the residue numbering the contig string depends on.
-# Alternate conformations beyond the first would double-count a residue.
-awk -v chain="$CHAIN" '
-    /^ATOM/ && substr($0,22,1) == chain {
-        altloc = substr($0,17,1)
-        if (altloc == " " || altloc == "A") print
-    }
-' "$raw" > "$clean"
+# ---- Clean ------------------------------------------------------------------
+# RFdiffusion wants protein atoms only: no waters, no hetero-atoms, no
+# alternate locations, one chain. Waters in particular will be read as
+# residues and silently corrupt the contig numbering.
+echo "==> Cleaning: keeping chain ${CHAIN}, protein atoms only"
+awk -v ch="${CHAIN}" '
+  /^ATOM/ {
+    altloc = substr($0, 17, 1)
+    chain  = substr($0, 22, 1)
+    if (chain == ch && (altloc == " " || altloc == "A")) print
+  }
+  /^TER/ { print }
+' "${RAW}" > "${CLEAN}"
+echo "END" >> "${CLEAN}"
 
-if [[ ! -s "$clean" ]]; then
-    echo "error: no ATOM records for chain ${CHAIN} in ${raw}" >&2
-    exit 1
-fi
+# ---- Report -----------------------------------------------------------------
+N_ATOMS=$(grep -c '^ATOM' "${CLEAN}" || true)
+N_RES=$(awk '/^ATOM/ {print substr($0,23,4)}' "${CLEAN}" | sort -un | wc -l)
+FIRST_RES=$(awk '/^ATOM/ {print substr($0,23,4)}' "${CLEAN}" | head -1 | tr -d ' ')
+LAST_RES=$(awk '/^ATOM/ {print substr($0,23,4)}' "${CLEAN}" | tail -1 | tr -d ' ')
 
-# TER/END close the chain. Padded to the 80-column PDB convention so the
-# output matches what standard tools emit.
-last=$(tail -1 "$clean")
-printf 'TER   %5d      %3s %s%4d%54s\nEND%77s\n' \
-    $(( $(awk 'END{print substr($0,7,5)+0}' "$clean") + 1 )) \
-    "$(echo "$last" | cut -c18-20)" "$CHAIN" \
-    "$(echo "$last" | cut -c23-26)" "" "" >> "$clean"
+cat <<EOF
 
-printf 'wrote %s (%d atoms, chain %s, residues %s-%s)\n' \
-    "$clean" \
-    "$(grep -c '^ATOM' "$clean")" \
-    "$CHAIN" \
-    "$(awk '/^ATOM/{print substr($0,23,4)+0}' "$clean" | head -1)" \
-    "$(awk '/^ATOM/{print substr($0,23,4)+0}' "$clean" | tail -1)"
+==> Done: ${TARGET_DIR}/${CLEAN}
+    chain:     ${CHAIN}
+    atoms:     ${N_ATOMS}
+    residues:  ${N_RES}  (numbered ${FIRST_RES}-${LAST_RES})
+
+    Contig range for this target:  ${CHAIN}${FIRST_RES}-${LAST_RES}
+
+    Check for gaps before trusting a contig -- RFdiffusion treats missing
+    residues as chain breaks:
+      python3 -c "
+import sys
+n=[int(l[22:26]) for l in open('${CLEAN}') if l.startswith('ATOM')]
+u=sorted(set(n)); g=[(a,b) for a,b in zip(u,u[1:]) if b-a>1]
+print('gaps:', g if g else 'none')"
+
+EOF
