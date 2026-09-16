@@ -1,0 +1,13 @@
+Prepare the existing ubiquitin demo for human review. First list inputs and
+example specs. Use the ubq_motif example (chain A residues 72-76, 20-30 generated
+residues on either side, two designs, diffuser_T 50). The local input is
+1UBQ_clean.pdb in the configured inputs directory. If it is missing, report that
+and stop; do not invent a target or substitute a different experiment.
+
+Save it as api_ubq_motif with a description explaining that this tests the
+end-to-end API-to-SSH workflow and motif preservation. The evaluation plan is
+to collect the authoritative TRB/PDB pairs and measure motif backbone RMSD
+against the saved input. Preview the resulting command, then report the saved
+experiment ID and the human review/approval commands. Do not submit this job.
+Do not call generated backbones candidates: sequence design and refolding are
+not part of this demo.

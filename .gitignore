@@ -6,6 +6,10 @@ outputs/
 
 # Machine-specific path overrides.
 config/paths.local.yaml
+config/orchestrator.local.yaml
+.agentic-design/
+data/inputs/1UBQ.pdb
+data/inputs/1UBQ_clean.pdb
 
 # Model checkpoints, should never be committed.
 *.pt
@@ -15,6 +19,9 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .venv/
+.venv-sol/
+.venv-wsl/
+*.egg-info/
 
 # Machine-specific connection details (host, key path).
 project.env

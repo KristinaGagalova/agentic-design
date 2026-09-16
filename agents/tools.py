@@ -1,78 +1,96 @@
-"""MCP server exposing the design pipeline as agent tools.
+"""MCP adapter over the same validated service used by the endpoint agent."""
 
-Run with:  python agents/tools.py
-Requires:  pip install "mcp[cli]"
-"""
 import json
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+from mcp.server.fastmcp import FastMCP
 
-from mcp.server.fastmcp import FastMCP  # noqa: E402
+from agentic_design.config import load_orchestrator
+from agentic_design.jobs import JobService
+from agentic_design.tools import ToolRegistry
 
-from agentic_design.runner import DesignRequest, run_design  # noqa: E402
-from agentic_design.trb import summarize_dir  # noqa: E402
-from agentic_design.validate import check_binder, check_motif  # noqa: E402
-
+cfg = load_orchestrator()
+registry = ToolRegistry(JobService(cfg), cfg["limits"].get("max_agent_submissions", 1))
 mcp = FastMCP("agentic-design")
 
 
-@mcp.tool()
-def diffuse(name: str, contigs: str, num_designs: int = 1,
-            diffuser_T: int = 50, input_pdb: str = "",
-            hotspot_res: str = "") -> str:
-    """Generate backbones with RFdiffusion.
+def call(name, arguments):
+    try:
+        return json.dumps(
+            {"ok": True, "result": registry.dispatch(name, arguments)},
+            indent=2,
+            default=str,
+        )
+    except Exception as exc:
+        return json.dumps(
+            {"ok": False, "error": type(exc).__name__, "message": str(exc)}, indent=2
+        )
 
-    contigs: RFdiffusion contig string, e.g. "[100-100]" for a 100-mer,
-             or "[A1-150/0 70-100]" for a binder against chain A.
-    Returns JSON with per-design summaries parsed from the .trb files.
-    """
-    req = DesignRequest(
-        name=name, contigs=contigs, num_designs=num_designs,
-        diffuser_T=diffuser_T,
-        input_pdb=input_pdb or None,
-        hotspot_res=hotspot_res or None,
+
+@mcp.tool()
+def list_inputs() -> str:
+    return call("list_inputs", {})
+
+
+@mcp.tool()
+def list_examples() -> str:
+    return call("list_examples", {})
+
+
+@mcp.tool()
+def list_experiments() -> str:
+    return call("list_experiments", {})
+
+
+@mcp.tool()
+def save_experiment(spec: dict, description: str = "", evaluation: str = "") -> str:
+    return call(
+        "save_experiment",
+        {"spec": spec, "description": description, "evaluation": evaluation},
     )
-    return json.dumps(run_design(req), indent=2)
 
 
 @mcp.tool()
-def inspect_results(run_name: str) -> str:
-    """Summarize the designs produced by a previous run."""
-    return json.dumps(summarize_dir(Path("results") / run_name), indent=2)
+def preview_experiment(experiment_id: str) -> str:
+    return call("preview_experiment", {"experiment_id": experiment_id})
 
 
 @mcp.tool()
-def validate_motif(run_name: str, reference_pdb: str) -> str:
-    """Check that a motif-scaffolding run preserved the motif it was given.
-
-    reference_pdb: the input_pdb the run was conditioned on.
-    Returns per-design backbone RMSD between the motif as supplied and as
-    built. A run can exit cleanly and still have moved the motif, so treat
-    this as the acceptance check rather than the exit code.
-    """
-    outdir = Path("results") / run_name
-    return json.dumps([
-        check_motif(trb, trb.with_suffix(".pdb"), reference_pdb)
-        for trb in sorted(outdir.glob("*.trb"))
-    ], indent=2)
+def submit_experiment(experiment_id: str, submission_key: str) -> str:
+    return call(
+        "submit_experiment",
+        {"experiment_id": experiment_id, "submission_key": submission_key},
+    )
 
 
 @mcp.tool()
-def validate_binder(run_name: str, reference_pdb: str, hotspot_res: str) -> str:
-    """Score a binder run: was the target held, and did the binder hit the hotspots?
+def job_status(run_id: str) -> str:
+    return call("job_status", {"run_id": run_id})
 
-    hotspot_res: the same string the run spec used, e.g. "[A8,A44,A70]".
-    Hotspots bias RFdiffusion rather than constraining it, so a clean exit does
-    not mean the binder engaged the intended surface. Rank designs by how many
-    hotspots they contact and how large the interface is.
-    """
-    outdir = Path("results") / run_name
-    return json.dumps([
-        check_binder(pdb, reference_pdb, hotspot_res)
-        for pdb in sorted(outdir.glob("*.pdb"))
-    ], indent=2)
+
+@mcp.tool()
+def collect_job(run_id: str) -> str:
+    return call("collect_job", {"run_id": run_id})
+
+
+@mcp.tool()
+def inspect_results(run_id: str) -> str:
+    return call("inspect_results", {"run_id": run_id})
+
+
+@mcp.tool()
+def validate_motif(run_id: str, reference_pdb: str) -> str:
+    return call("validate_motif", {"run_id": run_id, "reference_pdb": reference_pdb})
+
+
+@mcp.tool()
+def validate_binder(run_id: str, reference_pdb: str, hotspot_res: str) -> str:
+    return call(
+        "validate_binder",
+        {"run_id": run_id, "reference_pdb": reference_pdb, "hotspot_res": hotspot_res},
+    )
 
 
 if __name__ == "__main__":

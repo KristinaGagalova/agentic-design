@@ -1,14 +1,16 @@
-"""Run RFdiffusion as a subprocess and return structured results.
+"""Build and execute RFdiffusion commands.
 
-Backends are swappable: `local` shells out to the venv on this machine,
-`remote` is a stub for when you move to a rented GPU. Agent-facing code
-calls run_design() and should not care which is active.
+``build_command`` is deliberately pure.  Remote workers pass an explicit
+configuration and resolved paths; local callers retain the historical defaults.
 """
-from dataclasses import dataclass, field
-from pathlib import Path
-import subprocess
 
-from .paths import load_paths, results_dir, REPO_ROOT
+import json
+import subprocess
+from collections.abc import Mapping
+from dataclasses import dataclass, field
+from pathlib import Path, PurePath, PurePosixPath
+
+from .paths import REPO_ROOT, load_paths, results_dir
 from .trb import summarize_dir
 
 
@@ -23,9 +25,16 @@ class DesignRequest:
     extra: dict = field(default_factory=dict)
 
 
-def build_command(req: DesignRequest, outdir: Path) -> list[str]:
-    cfg = load_paths()
-    root = Path(cfg["rfdiffusion_root"])
+def build_command(
+    req: DesignRequest,
+    outdir: PurePath,
+    *,
+    cfg: Mapping | None = None,
+    input_pdb: PurePath | None = None,
+) -> list[str]:
+    cfg = dict(cfg or load_paths())
+    path_flavour = PurePosixPath if isinstance(outdir, PurePosixPath) else Path
+    root = path_flavour(str(cfg["rfdiffusion_root"]))
     cmd = [cfg["python_bin"]]
     if cfg.get("device") == "cpu":
         # SE3Transformer's CUDA-only NVTX profiling calls crash a CPU build.
@@ -38,11 +47,22 @@ def build_command(req: DesignRequest, outdir: Path) -> list[str]:
         f"diffuser.T={req.diffuser_T}",
     ]
     if req.input_pdb:
-        cmd.append(f"inference.input_pdb={REPO_ROOT / req.input_pdb}")
+        resolved_input = (
+            input_pdb if input_pdb is not None else REPO_ROOT / req.input_pdb
+        )
+        cmd.append(f"inference.input_pdb={resolved_input}")
     if req.hotspot_res:
         cmd.append(f"ppi.hotspot_res={req.hotspot_res}")
     for k, v in req.extra.items():
-        cmd.append(f"{k}={v}")
+        if isinstance(v, bool):
+            encoded = str(v).lower()
+        elif v is None:
+            encoded = "null"
+        elif isinstance(v, list):
+            encoded = json.dumps(v, separators=(",", ":"))
+        else:
+            encoded = str(v)
+        cmd.append(f"{k}={encoded}")
     return cmd
 
 
@@ -64,28 +84,68 @@ def require_device(cfg: dict) -> None:
         )
 
 
-def run_design(req: DesignRequest) -> dict:
+def run_design(
+    req: DesignRequest,
+    *,
+    outdir: Path | None = None,
+    cfg: Mapping | None = None,
+    input_pdb: Path | None = None,
+) -> dict:
     """Execute a design job. Returns a JSON-safe result dict."""
-    require_device(load_paths())
-    outdir = results_dir() / req.name
+    effective_cfg = dict(cfg or load_paths())
+    require_device(effective_cfg)
+    outdir = outdir or (results_dir() / req.name)
     outdir.mkdir(parents=True, exist_ok=True)
-    cmd = build_command(req, outdir)
+    existing = list(outdir.glob("*.trb")) + list(outdir.glob("*.pdb"))
+    if existing:
+        raise FileExistsError(
+            f"refusing to reuse output directory containing design artifacts: {outdir}"
+        )
+    cmd = build_command(req, outdir, cfg=effective_cfg, input_pdb=input_pdb)
 
     # Stream to the log rather than buffering: RFdiffusion logs every timestep,
     # and a job that only reveals its output on exit cannot be monitored.
     log = outdir / "run.log"
-    with log.open("w") as fh:
-        proc = subprocess.run(cmd, stdout=fh, stderr=subprocess.STDOUT, text=True)
+    if log.exists():
+        raise FileExistsError(f"refusing to truncate existing log: {log}")
+    with log.open("x") as fh:
+        proc = subprocess.run(
+            cmd, stdout=fh, stderr=subprocess.STDOUT, text=True, check=False
+        )
 
     text = log.read_text()
+    designs = summarize_dir(outdir) if proc.returncode == 0 else []
+    skipped = text.count("Skipping this design")
+    expected_stems = {f"{req.name}_{index}" for index in range(req.num_designs)}
+    trbs = {p.stem for p in outdir.glob("*.trb")}
+    pdbs = {p.stem for p in outdir.glob("*.pdb")}
+    pairs = trbs & pdbs
+    valid = (
+        proc.returncode == 0
+        and trbs == expected_stems
+        and pdbs == expected_stems
+        and pairs == expected_stems
+        and skipped == 0
+    )
+    error = None
+    if not valid:
+        if proc.returncode:
+            error = text[-2000:]
+        elif skipped:
+            error = f"RFdiffusion skipped {skipped} existing design(s)"
+        else:
+            error = (
+                f"expected {req.num_designs} fresh TRB/PDB pair(s), found {len(pairs)}"
+            )
     return {
         "name": req.name,
         "returncode": proc.returncode,
         "outdir": str(outdir),
         "log": str(log),
-        "designs": summarize_dir(outdir) if proc.returncode == 0 else [],
+        "designs": designs,
         # RFdiffusion's cautious mode skips designs whose output already
         # exists, so a re-run can exit 0 having generated nothing new.
-        "skipped_existing": text.count("Skipping this design"),
-        "error": text[-2000:] if proc.returncode != 0 else None,
+        "skipped_existing": skipped,
+        "success": valid,
+        "error": error,
     }

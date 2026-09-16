@@ -1,0 +1,5 @@
+# Adapted from the existing demo; scientific parameters are unchanged.
+name: ubq_monomer
+contigs: "[76-76]"
+num_designs: 2
+diffuser_T: 50

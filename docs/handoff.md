@@ -1,63 +1,87 @@
 # Status
 
-What is true right now. Everything durable — goals, environment, commands,
-architecture, invariants, and the failure modes that present as success — lives
-in [../AGENTS.md](../AGENTS.md) and is deliberately not repeated here.
+Updated 2026-09-16 for the endpoint-driven orchestration implementation.
+Start with [the demo walkthrough](../demo-api/README.md) and
+[Astra’s design](../astra-design.md).
 
-> **None of this work is committed.** `git log` shows a single commit,
-> `Scaffold agentic design repo around RFdiffusion`, with ~21 uncommitted paths.
-> A fresh clone gets *none* of it. **Committing is the highest-priority action.**
+## Current work
 
-## Progress against the three goals
+Astra designed the system and Sol implemented the agent/job service. The
+researcher selected direct SSH execution, human approval before submission,
+configurable endpoint/model settings, and OpenRouter `openai/gpt-5.6-sol`
+restricted to the OpenAI provider. The initial client is Windows `cmd`, with
+WSL2 available as an alternative.
 
-| Horizon | State |
-|---|---|
-| Test the framework, run one experiment end to end | **Done** |
-| Extract what is reusable from that run | **Mostly done** |
-| Drivable by any AI over an OpenAI-compatible endpoint | Not started |
+- A Chat Completions tool loop prepares immutable experiment specs and records
+  conversation audits. Endpoint, model, key environment variable, and request
+  parameters are operator-configurable.
+- Approval is a human CLI action tied to the saved spec and input bytes. Models
+  can submit approved experiments but cannot approve them.
+- The job service stages a small worker and input snapshot automatically over
+  SSH, starts detached jobs, records durable IDs, and retrieves checked outputs.
+- MCP shares the same tool service and approval rules.
+- Original YAML runs remain supported on the execution machine. The new
+  orchestrator is the SSH path; the legacy CLI rejects non-local backends.
+- `demo-api/` adapts the existing ubiquitin examples with portable input paths,
+  a prompt file, data-fetch scripts, and a numbered Windows/WSL walkthrough.
+- The upstream demo fetch update (`dcaf416`) was fast-forwarded into this checkout
+  before integrating the API demo. No existing work was discarded.
 
-## Works, verified
+The API implementation is on the `agentic-design-api` branch for review against
+`main`. The earlier warning about all historical work being uncommitted was
+stale; that work was already in Git.
 
-- Full pipeline: YAML spec → RFdiffusion on the VM → parsed `.trb` → motif RMSD.
-- Runs completed, all CPU: `smoke` (23.5 s), `ubq_motif` (2 designs, ~57-60 s
-  each), `ubq_monomer` (2 designs, ~78-80 s each), `ubq_binder` (2 designs,
-  ~2.6-2.9 min each).
-- `ubq_motif` motif preservation: **0.73 Å** and **1.13 Å** backbone RMSD over
-  A72-76. Design 0 good, design 1 marginal.
-- `ubq_binder` target preservation: **0.117 Å** and **0.114 Å** over all 76
-  target residues — the chain-break contig and `denoiser` overrides work.
-- 14 tests pass, none needing a GPU, weights, or RFdiffusion installed.
-- 9 run configs in `config/runs/`.
+## Verification
 
-See [first-run.md](first-run.md) for the full run report.
+The researcher explicitly authorized mocked/unit tests locally and chose to
+configure the cluster later. See the final verification entry below for the
+suite result. No live OpenRouter request, real SSH submission, or new RFdiffusion
+experiment has been run in this implementation session.
 
-## Does not exist yet
+The updated fetcher downloaded public 1UBQ. The cleaned target was checked:
+602 protein atoms, chain A, contiguous residues 1-76, and complete N/CA/C backbone
+atoms. Generated target files are gitignored and reproducible with the fetcher.
 
-- ProteinMPNN, refolding, and filtering — `workflows/design_campaign.py` raises
-  `NotImplementedError` for all three. "Validation" today means motif RMSD only.
-- The `remote` SSH backend.
-- Anything for the OpenAI-compatible-endpoint goal beyond the existing MCP server.
-- **No binder worth testing.** Both `ubq_binder` designs contact only A8; A44
-  and A70 — the Ile44 patch that is the real interaction surface — sit 6.5-7.3 Å
-  away, and interfaces are small (7-11% of binder atoms). Hotspots bias
-  RFdiffusion, they do not constrain it, and 2 designs is not a sample.
+The HTTP integration fixture exercises the API demo using a local fake endpoint:
+input/example discovery, saving a motif experiment, command preview, rejection
+of model self-approval and unapproved submission, tool-result correlation,
+reasoning metadata preservation, and a key-free saved audit.
 
-## Known defects
+## Still required for a live demonstration
 
-- **A re-run truncates `run.log`**, destroying the record of the original run.
-  Combined with cautious-mode skipping, a careless repeat wipes your only log.
-- `--dry-run` prints a relative `output_prefix` while a real run uses an absolute
-  one. Cosmetic, but the printed command is not exactly what executes.
+1. Follow `demo-api/README.md` on the Windows client (or entirely within WSL).
+2. Set the local OpenRouter key; no key is present in source control.
+3. Configure `config/orchestrator.local.yaml` with the SSH host/key and remote
+   installation paths, then establish the verified host-key entry.
+4. Review the saved motif experiment, approve it, submit it, and collect outputs.
+5. Check motif RMSD. This is geometric verification, not candidate validation.
 
-## Next steps, in order
+The native Windows commands and POSIX remote paths are implemented, but this
+session runs on macOS; a native Windows/real-host acceptance run remains pending.
+Slurm/PBS adapters are deferred because the researcher selected direct commands.
 
-1. **Generate a real batch of binders.** At ~2.75 min/design, 100 designs is
-   ~4.5 h on CPU — practical. Two designs told us the mechanism works; only a
-   batch will produce something worth carrying forward. Rank with `check_binder`
-   on hotspots contacted and interface fraction.
-2. **Fix the `run.log` truncation** before a long batch gets clobbered.
-3. **Wire up ProteinMPNN** (`stage_sequence`). Without sequence design and
-   refolding, "high-quality binder" is unfalsifiable.
-4. **Then** the `remote` SSH backend — traps listed in AGENTS.md.
-5. **Consider a GPU** once binder runs are routine. Nothing in `src/` should
-   change: point `paths.local.yaml` at the GPU install and drop `device: cpu`.
+## Scientific scope and historical evidence
+
+The historical CPU runs remain documented in [first-run.md](first-run.md):
+`smoke`, `ubq_motif`, `ubq_monomer`, and `ubq_binder` ran end to end. Motif RMSDs
+were 0.73 and 1.13 Å; binder target-preservation RMSDs were 0.117 and 0.114 Å.
+Those binders contacted only A8, not the full intended patch.
+
+ProteinMPNN, refolding, and downstream filtering are still explicit stubs in
+`workflows/design_campaign.py`. No validated binder candidate has been produced.
+The framework reports backbones and structural checks without claiming otherwise.
+
+## Final verification (2026-09-16)
+
+- Full local suite: **33 passed** (`.venv-sol/bin/python -m pytest tests -q`).
+- Python compilation and `git diff --check`: passed.
+- Console entry point, input/example discovery, demo import, and command preview:
+  exercised successfully. The saved local demo remains unapproved and unsubmitted.
+- Real localhost HTTP fixture: passed, with no paid provider request.
+- Isolated staged worker: executed against fake inference/torch fixtures; no
+  real protein design or GPU computation was performed.
+- Regression coverage includes immutable input approval, protected overrides,
+  job idempotency, output freshness, partial collection recovery, remote quoting,
+  SSH failure handling, completion/PID race handling, and bounded submissions.
+- CI configuration added for Windows/Linux with Python 3.10/3.12. It has not
+  been run on GitHub in this session; native Windows acceptance is still pending.
