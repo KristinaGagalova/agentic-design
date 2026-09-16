@@ -1,0 +1,109 @@
+# =============================================================================
+# Demo run configs for RFdiffusion, targeting 1UBQ (ubiquitin, 76 residues).
+#
+# Split these into separate files under config/runs/ , or keep as one file and
+# select with a --run flag. Each block is consumed by
+# src/agentic_design/cli.py -> DesignRequest.
+#
+# Prepare the target first:
+#     bash demo/fetch_demo_target.sh
+#     # writes /mnt/src/data/targets/1UBQ_clean.pdb  (chain A, residues 1-76)
+#
+# Runtimes below are rough CPU estimates on ~12 cores. On a GPU, divide by
+# roughly 50-100.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# config/runs/smoke.yaml
+# No target. Proves the install works. ~3-5 min on CPU.
+# -----------------------------------------------------------------------------
+name: smoke
+contigs: "[40-40]"
+num_designs: 1
+diffuser_T: 20
+
+---
+# -----------------------------------------------------------------------------
+# config/runs/ubq_monomer.yaml
+# Still no target -- an unconditional monomer at ubiquitin-like size.
+# Useful as a baseline for what "good" backbone output looks like. ~30-45 min.
+# -----------------------------------------------------------------------------
+name: ubq_monomer
+contigs: "[76-76]"
+num_designs: 2
+diffuser_T: 50
+
+---
+# -----------------------------------------------------------------------------
+# config/runs/ubq_binder.yaml
+# Binder design against the Ile44 hydrophobic patch.
+#
+# Contig reads: keep chain A residues 1-76 as the target (/0 = chain break),
+# then generate a new binder chain of 50-65 residues.
+#
+# Hotspots L8 / I44 / V70 are the canonical ubiquitin-interaction surface --
+# most natural ubiquitin-binding domains engage exactly this patch, so a
+# designed binder landing here is biologically sensible.
+#
+# Noise scales set to 0: standard practice for binder design, sharpens the
+# interface at some cost to diversity.
+#
+# SLOW on CPU: ~4-8 h for 2 designs. Use diffuser_T: 25 for a faster check.
+# -----------------------------------------------------------------------------
+name: ubq_binder
+input_pdb: /mnt/src/data/targets/1UBQ_clean.pdb
+contigs: "[A1-76/0 50-65]"
+hotspot_res: "[A8,A44,A70]"
+num_designs: 2
+diffuser_T: 50
+denoiser:
+  noise_scale_ca: 0
+  noise_scale_frame: 0
+
+---
+# -----------------------------------------------------------------------------
+# config/runs/ubq_binder_fast.yaml
+# Same design problem, cut down so it finishes in ~1 h on CPU.
+# Backbone quality will be worse -- this is for testing plumbing, not designs.
+# -----------------------------------------------------------------------------
+name: ubq_binder_fast
+input_pdb: /mnt/src/data/targets/1UBQ_clean.pdb
+contigs: "[A1-76/0 40-50]"
+hotspot_res: "[A8,A44,A70]"
+num_designs: 1
+diffuser_T: 20
+denoiser:
+  noise_scale_ca: 0
+  noise_scale_frame: 0
+
+---
+# -----------------------------------------------------------------------------
+# config/runs/ubq_motif.yaml
+# Motif scaffolding: keep the C-terminal tail (residues 72-76, the LRGG motif
+# that gets conjugated to substrates) and build new protein around it.
+#
+# Contig reads: 20-30 new residues, then fixed A72-76, then 20-30 more.
+# A good test that fixed-motif geometry is preserved -- check the .trb mask
+# and confirm those 5 residues are unchanged in the output. ~45 min.
+# -----------------------------------------------------------------------------
+name: ubq_motif
+input_pdb: /mnt/src/data/targets/1UBQ_clean.pdb
+contigs: "[20-30/A72-76/20-30]"
+num_designs: 2
+diffuser_T: 50
+
+---
+# -----------------------------------------------------------------------------
+# config/runs/ubq_partial.yaml
+# Partial diffusion: start from the real ubiquitin fold and resample around it.
+# Lower partial_T = stays closer to the original. Good for checking that the
+# input structure is being read correctly -- outputs should look ubiquitin-ish.
+# ~20 min.
+# -----------------------------------------------------------------------------
+name: ubq_partial
+input_pdb: /mnt/src/data/targets/1UBQ_clean.pdb
+contigs: "[76-76]"
+num_designs: 2
+diffuser_T: 50
+diffuser:
+  partial_T: 10

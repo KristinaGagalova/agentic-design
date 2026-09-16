@@ -1,0 +1,11 @@
+# Same design problem as ubq_binder, cut down so it finishes in ~1 h on CPU.
+# Backbone quality will be worse -- this is for testing plumbing, not designs.
+name: ubq_binder_fast
+input_pdb: /mnt/src/data/targets/1UBQ_clean.pdb
+contigs: "[A1-76/0 40-50]"
+hotspot_res: "[A8,A44,A70]"
+num_designs: 1
+diffuser_T: 20
+denoiser:
+  noise_scale_ca: 0
+  noise_scale_frame: 0

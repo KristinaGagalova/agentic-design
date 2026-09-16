@@ -1,0 +1,8 @@
+# ubq_motif cut down to a single design at low T, for checking plumbing before
+# committing to the full run. Backbone quality will be poor -- do not judge
+# designs from this.
+name: ubq_motif_fast
+input_pdb: /mnt/src/data/targets/1UBQ_clean.pdb
+contigs: "[20-30/A72-76/20-30]"
+num_designs: 1
+diffuser_T: 25

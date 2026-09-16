@@ -8,4 +8,8 @@ inputs_dir: data/inputs
 
 # execution backend: "local" now, "remote" when you rent a GPU
 backend: local
-device: cpu
+
+# GPU is the intended target. A run aborts if this is "cuda" and no GPU is
+# visible, rather than silently falling back and taking 50-100x longer.
+# CPU-only hosts must opt in explicitly in paths.local.yaml:  device: cpu
+device: cuda

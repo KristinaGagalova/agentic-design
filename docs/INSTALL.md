@@ -21,7 +21,20 @@ python -m agentic_design.cli config/runs/smoke.yaml
 - CPU inference is roughly 50-100x slower than an A100. Treat this install
   as a development environment and rent a GPU for production runs.
 
+## Device selection
+
+`config/paths.yaml` defaults to `device: cuda`, and a run aborts if no GPU is
+visible rather than falling back silently -- a silent fallback turns a
+20-minute job into a multi-hour one. A CPU-only host must opt in:
+
+```bash
+echo 'device: cpu' >> config/paths.local.yaml
+```
+
+That also enables `agentic_design.cpu_shim`, which is required on CPU: see
+*CPU-only hosts* in the README for why.
+
 ## Moving to a GPU
 
-Edit `config/paths.local.yaml` to point at the GPU machine's install and set
-`device: cuda`. Nothing in `src/` should need to change.
+Point `config/paths.local.yaml` at the GPU machine's install, and remove any
+`device: cpu` line so the `cuda` default applies. Nothing in `src/` changes.

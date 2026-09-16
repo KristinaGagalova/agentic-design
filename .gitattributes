@@ -1,0 +1,5 @@
+* text=auto
+
+# These execute on the Linux VM. With core.autocrlf=true a Windows checkout
+# would give them CRLF, and `#!/usr/bin/env bash\r` fails with "bad interpreter".
+*.sh text eol=lf

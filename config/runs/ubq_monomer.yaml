@@ -1,0 +1,6 @@
+# No target -- an unconditional monomer at ubiquitin-like size. Useful as a
+# baseline for what "good" backbone output looks like. ~30-45 min.
+name: ubq_monomer
+contigs: "[76-76]"
+num_designs: 2
+diffuser_T: 50

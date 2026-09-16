@@ -1,0 +1,11 @@
+# Motif scaffolding: keep the C-terminal tail (residues 72-76, the LRGG motif
+# that gets conjugated to substrates) and build new protein around it.
+#
+# Contig reads: 20-30 new residues, then fixed A72-76, then 20-30 more.
+# A good test that fixed-motif geometry is preserved -- check the .trb mask
+# and confirm those 5 residues are unchanged in the output. ~45 min.
+name: ubq_motif
+input_pdb: /mnt/src/data/targets/1UBQ_clean.pdb
+contigs: "[20-30/A72-76/20-30]"
+num_designs: 2
+diffuser_T: 50

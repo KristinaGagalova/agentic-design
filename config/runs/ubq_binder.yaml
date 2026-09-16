@@ -1,0 +1,22 @@
+# Binder design against the Ile44 hydrophobic patch.
+#
+# Contig reads: keep chain A residues 1-76 as the target (/0 = chain break),
+# then generate a new binder chain of 50-65 residues.
+#
+# Hotspots L8 / I44 / V70 are the canonical ubiquitin-interaction surface --
+# most natural ubiquitin-binding domains engage exactly this patch, so a
+# designed binder landing here is biologically sensible.
+#
+# Noise scales set to 0: standard practice for binder design, sharpens the
+# interface at some cost to diversity.
+#
+# SLOW on CPU: ~4-8 h for 2 designs. Use ubq_binder_fast for a faster check.
+name: ubq_binder
+input_pdb: /mnt/src/data/targets/1UBQ_clean.pdb
+contigs: "[A1-76/0 50-65]"
+hotspot_res: "[A8,A44,A70]"
+num_designs: 2
+diffuser_T: 50
+denoiser:
+  noise_scale_ca: 0
+  noise_scale_frame: 0

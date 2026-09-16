@@ -1,0 +1,20 @@
+# Run outputs: PDBs and .trb files, regenerable and large.
+results/
+
+# Hydra's per-invocation working directory, created next to the CWD.
+outputs/
+
+# Machine-specific path overrides.
+config/paths.local.yaml
+
+# Model checkpoints, should never be committed.
+*.pt
+*.ckpt
+
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+
+# Machine-specific connection details (host, key path).
+project.env

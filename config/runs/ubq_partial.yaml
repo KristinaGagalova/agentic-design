@@ -1,0 +1,11 @@
+# Partial diffusion: start from the real ubiquitin fold and resample around it.
+# Lower partial_T = stays closer to the original. Good for checking that the
+# input structure is being read correctly -- outputs should look ubiquitin-ish.
+# ~20 min.
+name: ubq_partial
+input_pdb: /mnt/src/data/targets/1UBQ_clean.pdb
+contigs: "[76-76]"
+num_designs: 2
+diffuser_T: 50
+diffuser:
+  partial_T: 10
