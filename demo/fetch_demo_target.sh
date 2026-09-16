@@ -31,10 +31,15 @@ RAW="${PDB_ID}.pdb"
 CLEAN="${PDB_ID}_clean.pdb"
 
 # ---- Download ---------------------------------------------------------------
-if [ ! -f "${RAW}" ]; then
+if [ ! -s "${RAW}" ]; then
   echo "==> Downloading ${PDB_ID} from RCSB"
-  wget -q "https://files.rcsb.org/download/${PDB_ID}.pdb" -O "${RAW}" \
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL "https://files.rcsb.org/download/${PDB_ID}.pdb" -o "${RAW}" \
+      || { echo "ERROR: download failed. Check the PDB ID." >&2; rm -f "${RAW}"; exit 1; }
+  else
+    wget -q "https://files.rcsb.org/download/${PDB_ID}.pdb" -O "${RAW}" \
     || { echo "ERROR: download failed. Check the PDB ID." >&2; rm -f "${RAW}"; exit 1; }
+  fi
 fi
 
 # ---- Clean ------------------------------------------------------------------
@@ -54,6 +59,11 @@ echo "END" >> "${CLEAN}"
 
 # ---- Report -----------------------------------------------------------------
 N_ATOMS=$(grep -c '^ATOM' "${CLEAN}" || true)
+if [ "${N_ATOMS}" -eq 0 ]; then
+  echo "ERROR: no protein atoms for chain ${CHAIN} in ${RAW}" >&2
+  rm -f "${CLEAN}"
+  exit 1
+fi
 N_RES=$(awk '/^ATOM/ {print substr($0,23,4)}' "${CLEAN}" | sort -un | wc -l)
 FIRST_RES=$(awk '/^ATOM/ {print substr($0,23,4)}' "${CLEAN}" | head -1 | tr -d ' ')
 LAST_RES=$(awk '/^ATOM/ {print substr($0,23,4)}' "${CLEAN}" | tail -1 | tr -d ' ')

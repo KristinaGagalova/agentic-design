@@ -1,0 +1,6 @@
+# Adapted from the existing demo; scientific parameters are unchanged.
+name: ubq_motif
+input_pdb: 1UBQ_clean.pdb
+contigs: "[20-30/A72-76/20-30]"
+num_designs: 2
+diffuser_T: 50

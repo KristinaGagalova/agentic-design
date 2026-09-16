@@ -1,107 +1,93 @@
 # agentic-design
 
-Agentic orchestration of protein design workflows built on
-[RFdiffusion](https://github.com/RosettaCommons/RFdiffusion).
+Describe, review, and run RFdiffusion experiments using an AI at an
+OpenAI-compatible Chat Completions endpoint. The AI prepares experiment specs;
+you approve a saved spec before it can submit a job. Jobs run over SSH and
+continue after the conversation ends.
 
-RFdiffusion generates backbones. Turning those into candidates worth testing
-means sequence design, structure prediction, and filtering -- a loop with
-enough judgement in it to be worth handing to an agent. This repo wraps that
-loop behind a stable interface so the orchestration logic stays independent
-of where the models actually run.
+The initial configuration uses OpenRouter’s `openai/gpt-5.6-sol`, restricted to
+the OpenAI provider. Endpoint, model, and provider settings are configurable.
+
+RFdiffusion produces **backbones, not validated binder candidates**. The repo
+inspects authoritative `.trb` records and checks motif preservation and binder
+geometry. ProteinMPNN and refolding are not implemented.
+
+## Start here
+
+- [API demo using the existing ubiquitin experiments](demo-api/README.md)
+- [Setup and usage](docs/orchestration.md)
+- [Astra’s design](astra-design.md)
+- [Current status and verification](docs/handoff.md)
+- [RFdiffusion installation](docs/INSTALL.md)
+- [Original CPU experiment report](docs/first-run.md)
+
+The client needs Python 3.10+, OpenSSH, and lightweight package dependencies.
+RFdiffusion, PyTorch, and weights belong on the execution machine. The current
+remote backend runs direct commands; Slurm/PBS are deferred.
+
+Windows `cmd`:
+
+```bat
+py -3 -m venv .venv
+call .venv\Scripts\activate.bat
+python -m pip install -e ".[test]"
+copy config\orchestrator.yaml config\orchestrator.local.yaml
+rem Edit the local config for your endpoint and execution host.
+set "OPENROUTER_API_KEY=your-key"
+python demo-api\fetch_demo_target.py
+agentic-design agent --prompt-file demo-api\prepare-prompt.txt
+```
+
+WSL2 also works; use a separate Linux virtual environment and Linux SSH key paths.
+See [setup](docs/orchestration.md) for both options.
+
+Review and approve the experiment ID printed by the agent:
+
+```bash
+agentic-design experiment show EXPERIMENT_ID
+agentic-design experiment preview EXPERIMENT_ID
+agentic-design experiment approve EXPERIMENT_ID
+agentic-design job submit EXPERIMENT_ID
+agentic-design job status JOB_ID
+agentic-design job collect JOB_ID
+agentic-design agent --resume-job JOB_ID "Inspect the outputs and explain what is and is not validated."
+```
+
+Approval and submission are separate actions. The model has no approval tool.
+Job commands work without an LLM key.
+
+## Existing YAML workflow
+
+Import an existing run into the reviewed remote workflow:
+
+```bash
+agentic-design experiment create config/runs/smoke.yaml
+```
+
+The original CLI remains available on the execution machine:
+
+```bash
+python -m agentic_design.cli config/runs/smoke.yaml --dry-run
+python -m agentic_design.cli config/runs/smoke.yaml
+```
+
+`env/sync.sh` is retained for the legacy VM workflow. The new service stages each
+job’s worker and inputs automatically, with no manual sync step.
 
 ## Layout
 
 | Path | Purpose |
 |------|---------|
-| `env/` | Install scripts and pinned dependencies |
-| `config/paths.yaml` | Machine-specific paths; override with `paths.local.yaml` |
-| `config/runs/` | Declarative run specs, one YAML per job type |
-| `src/agentic_design/` | Library: runner, `.trb` parsing, CLI |
-| `agents/` | MCP server exposing the pipeline as tools, plus agent briefs |
-| `workflows/` | Multi-stage campaign scripts |
-| `data/` | Input PDBs and scaffold sets (committed) |
-| `results/` | Run outputs (gitignored) |
-| `tests/` | Tests that pass without GPU or weights |
+| `astra-design.md` | Architecture and acceptance checks |
+| `config/orchestrator.yaml` | Endpoint, limits, state, and SSH configuration |
+| `config/paths.yaml` | Legacy local RFdiffusion installation paths |
+| `config/runs/` | RFdiffusion run specs |
+| `demo-api/` | Worked API example adapted from `demo/` |
+| `src/agentic_design/` | Agent, job service, worker, runner, and validation |
+| `agents/tools.py` | MCP adapter over the shared tools |
+| `data/inputs/` | Researcher-supplied input structures |
+| `tests/` | Provider/transport fixtures and regression tests |
 
-## Quickstart
-
-See [docs/INSTALL.md](docs/INSTALL.md). Once installed:
-
-```bash
-python -m agentic_design.cli config/runs/smoke.yaml --dry-run   # inspect
-python -m agentic_design.cli config/runs/smoke.yaml             # run
-```
-
-## Running against the execution VM
-
-Jobs run where the weights and cores are. Edit here, ship the tree, execute there:
-
-```bash
-bash env/sync.sh push                            # local tree -> VM
-bash env/sync.sh run config/runs/smoke.yaml      # execute on the VM
-bash env/sync.sh pull                            # results -> ./results
-```
-
-Override the destination with `REMOTE`, `SSH_KEY`, `REMOTE_ROOT`. This is
-deliberately a thin shim, not the end state -- see *Execution model* below.
-
-## Watching a run
-
-RFdiffusion logs every diffusion timestep, counting down to 1 per design, and
-`results/<name>/run.log` is written as the job runs rather than on exit:
-
-```bash
-bash env/sync.sh progress ubq_binder   # designs started, last timestep, staleness
-bash env/sync.sh watch ubq_binder      # follow the log
-```
-
-Two things to know about long runs:
-
-- **Re-running a config does not redo work.** RFdiffusion's cautious mode skips
-  any design whose output PDB already exists, so a repeat run exits 0 having
-  generated nothing. `run_design()` reports this as `skipped_existing`; delete
-  the run directory to force regeneration.
-- A binder run is hours. Launch it under `tmux` or `nohup` on the VM rather
-  than holding an SSH connection open for the duration.
-
-## Design notes
-
-- **Nothing large is committed.** Weights, PDB outputs, and `.trb` files are
-  gitignored; the repo stays clonable.
-- **Paths live in config, not code.** Moving from a CPU VM to a rented GPU is
-  a one-file edit.
-- **Agents read `.trb`, not PDB text.** The `.trb` is the authoritative
-  record of what was designed.
-- **Validation is not optional.** A backbone that has not been refolded and
-  checked is not a candidate.
-- **Workarounds live in this repo, not in the RFdiffusion checkout.** CPU-only
-  boxes need one patch (see below); it ships as `cpu_shim.py` so the upstream
-  install stays pristine and the fix survives a rebuild.
-
-## Execution model
-
-`build_command()` constructs the RFdiffusion invocation; `run_design()` executes
-it. Keeping those separate is what makes the execution target swappable. Today
-`env/sync.sh` ships the tree to a VM and runs `backend: local` there. The
-intended end state is a `remote` backend that dispatches over SSH from the local
-repo, with no sync step.
-
-## CPU-only hosts
-
-SE3Transformer annotates its hot paths with `torch.cuda.nvtx.range`. On a
-CPU-only torch build those raise `NVTX functions not installed` partway through
-the first forward pass. `agentic_design.cpu_shim` replaces the NVTX push/pop
-primitives with no-ops -- they are profiling markers and do not affect results --
-then hands off to the real entrypoint. It is injected only when
-`config/paths.yaml` says `device: cpu`, so a GPU host runs unshimmed.
-
-## Status
-
-The diffusion stage is wired up and verified end to end on CPU. ProteinMPNN and
-structure-prediction stages in `workflows/design_campaign.py` are still stubs,
-and no binder has been designed yet.
-
-- **[docs/handoff.md](docs/handoff.md)** -- start here: goals, architecture,
-  current status, next steps, and the failure modes that present as success.
-- [docs/first-run.md](docs/first-run.md) -- the first end-to-end run: timings,
-  motif verification, and the four defects it exposed.
+Machine settings, credentials, outputs, and transcripts belong in gitignored
+locations. `.trb` files use pickle: only inspect outputs from the trusted
+execution environment.

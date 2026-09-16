@@ -1,0 +1,10 @@
+# Adapted from the existing demo; scientific parameters are unchanged.
+name: ubq_binder
+input_pdb: 1UBQ_clean.pdb
+contigs: "[A1-76/0 50-65]"
+hotspot_res: "[A8,A44,A70]"
+num_designs: 2
+diffuser_T: 50
+denoiser:
+  noise_scale_ca: 0
+  noise_scale_frame: 0

@@ -1,0 +1,5 @@
+# Adapted from the existing demo; scientific parameters are unchanged.
+name: smoke
+contigs: "[40-40]"
+num_designs: 1
+diffuser_T: 20

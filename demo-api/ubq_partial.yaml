@@ -1,0 +1,8 @@
+# Adapted from the existing demo; scientific parameters are unchanged.
+name: ubq_partial
+input_pdb: 1UBQ_clean.pdb
+contigs: "[76-76]"
+num_designs: 2
+diffuser_T: 50
+diffuser:
+  partial_T: 10
