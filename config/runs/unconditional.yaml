@@ -1,0 +1,5 @@
+# Smallest useful run: a monomer, no conditioning.
+name: unconditional
+contigs: "[80-120]"
+num_designs: 8
+diffuser_T: 50

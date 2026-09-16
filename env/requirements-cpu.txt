@@ -1,0 +1,15 @@
+# torch and dgl are installed separately (see install.sh) because they
+# need custom index URLs for CPU wheels.
+hydra-core
+omegaconf
+e3nn==0.3.3
+opt_einsum
+scipy
+numpy
+decorator
+pyrsistent
+icecream
+requests
+biopython
+pandas
+pyyaml

@@ -1,0 +1,10 @@
+# Binder design against a target. Fill in before use.
+name: binder
+input_pdb: data/inputs/target.pdb
+contigs: "[A1-150/0 70-100]"
+hotspot_res: "[A59,A83,A91]"
+num_designs: 50
+diffuser_T: 50
+denoiser:
+  noise_scale_ca: 0
+  noise_scale_frame: 0

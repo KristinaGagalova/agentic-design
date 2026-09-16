@@ -1,0 +1,11 @@
+# Default paths. Copy to paths.local.yaml (gitignored) to override
+# per-machine without dirtying the repo.
+rfdiffusion_root: /mnt/src/RFdiffusion
+python_bin: /mnt/src/rfdiff-venv/bin/python
+models_dir: /mnt/src/models
+results_dir: results
+inputs_dir: data/inputs
+
+# execution backend: "local" now, "remote" when you rent a GPU
+backend: local
+device: cpu

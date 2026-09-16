@@ -1,0 +1,5 @@
+# Fast CPU sanity check. Should finish in minutes.
+name: smoke
+contigs: "[40-40]"
+num_designs: 1
+diffuser_T: 20
