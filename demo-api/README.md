@@ -1,5 +1,7 @@
 # Run the ubiquitin demo through the API
 
+For the shorter command-by-command version, start with [Getting started](GETTING_STARTED.md).
+
 This is a step-by-step walkthrough for **Windows Command Prompt (`cmd`)**.
 WSL2 instructions are at the end. Run commands from the repository root.
 
