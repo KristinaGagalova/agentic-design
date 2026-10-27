@@ -413,6 +413,84 @@ class JobService:
         self._write(manifest)
         return {"run_id": run_id, "directory": str(destination), "designs": designs}
 
+    def _expected_designs(self, run_id: str) -> tuple[str, list[int]]:
+        """The design names a run must produce: RFdiffusion's index is its seed."""
+        snapshot = json.loads(
+            self._manifest_path(run_id).with_name("experiment.json").read_text()
+        )
+        request = build_request(snapshot["spec"])
+        first_index = request.seed if request.seed is not None else 0
+        return request.name, list(
+            range(first_index, first_index + request.num_designs)
+        )
+
+    def progress(self, run_id: str) -> dict:
+        """Count finished designs for a job that is still running.
+
+        Read-only: this collects nothing and verifies nothing. A present TRB/PDB
+        pair means that design index was written, not that it is any good.
+        """
+        manifest = self.status(run_id)
+        name, indices = self._expected_designs(run_id)
+        stems = {f"{name}_{index}": index for index in indices}
+        report = {
+            "run_id": run_id,
+            "state": manifest["state"],
+            "designs_expected": len(indices),
+            "designs_written": 0,
+            "written_indices": [],
+            "in_progress_indices": [],
+            "pending_indices": list(indices),
+            "collected": bool(manifest.get("local_dir")),
+            "caveat": "written design pairs are not verified or validated designs",
+        }
+        if manifest.get("error"):
+            report["error"] = manifest["error"]
+        if manifest["state"] == "unknown":
+            report["note"] = "remote job state is unknown; counts were not read"
+            return report
+        outputs = f"{manifest['remote_dir']}/outputs"
+        transport = self.transport_factory(manifest["ssh"])
+        listing = transport.run(["ls", "-1", outputs], check=False)
+        if listing.returncode == 255:
+            report["note"] = "SSH transport failed while listing remote outputs"
+            return report
+        if listing.returncode != 0:
+            report["note"] = "remote output directory does not exist yet"
+            return report
+        files = {line.strip() for line in listing.stdout.splitlines() if line.strip()}
+        written = {index for stem, index in stems.items()
+                   if f"{stem}.trb" in files and f"{stem}.pdb" in files}
+        # A PDB without its TRB is a design still being written.
+        started = {index for stem, index in stems.items()
+                   if f"{stem}.pdb" in files and f"{stem}.trb" not in files}
+        report.update({
+            "designs_written": len(written),
+            "written_indices": sorted(written),
+            "in_progress_indices": sorted(started),
+            "pending_indices": sorted(set(indices) - written - started),
+        })
+        unexpected = sorted(
+            f for f in files
+            if f.endswith((".trb", ".pdb")) and f.rsplit(".", 1)[0] not in stems
+        )
+        if unexpected:
+            report["unexpected_outputs"] = unexpected
+        log = f"{outputs}/run.log"
+        # Cautious mode exits 0 after skipping; a nonzero count invalidates the run.
+        skipped = transport.run(
+            ["grep", "-c", "Skipping this design", log], check=False
+        )
+        if skipped.returncode in (0, 1):
+            try:
+                report["skipped_existing"] = int(skipped.stdout.strip() or 0)
+            except ValueError:
+                report["skipped_existing"] = None
+        tail = transport.run(["tail", "-n", "1", log], check=False)
+        if tail.returncode == 0 and tail.stdout.strip():
+            report["last_log_line"] = tail.stdout.strip()[-300:]
+        return report
+
     def _validate_collection(self, destination: Path, manifest: dict) -> list[dict]:
         result = json.loads((destination / "result.json").read_text())
         if (
@@ -424,26 +502,18 @@ class JobService:
                 "remote result manifest does not record a fresh successful run"
             )
         designs = summarize_dir(destination / "outputs")
-        snapshot = json.loads(
-            self._manifest_path(manifest["run_id"])
-            .with_name("experiment.json")
-            .read_text()
-        )
-        request = build_request(snapshot["spec"])
-        first_index = request.seed if request.seed is not None else 0
-        expected_stems = {
-            f"{request.name}_{index}" for index in range(first_index, first_index + request.num_designs)
-        }
+        name, indices = self._expected_designs(manifest["run_id"])
+        expected_stems = {f"{name}_{index}" for index in indices}
         output_dir = destination / "outputs"
         trbs = {path.stem for path in output_dir.glob("*.trb")}
         pdbs = {path.stem for path in output_dir.glob("*.pdb")}
         if (
             trbs != expected_stems
             or pdbs != expected_stems
-            or len(designs) != request.num_designs
+            or len(designs) != len(indices)
         ):
             raise ValueError(
-                f"collected output is incomplete: expected {request.num_designs} named TRB/PDB pairs"
+                f"collected output is incomplete: expected {len(indices)} named TRB/PDB pairs"
             )
         return designs
 

@@ -1,4 +1,10 @@
-"""OpenCode MCP entry point. No approval, shell, or arbitrary file-write tool."""
+"""OpenCode MCP entry point. No shell or arbitrary file-write tool.
+
+Approval is exposed here only because OpenCode is configured to ask the
+researcher to confirm each `approve_experiment` call (see the agent profile in
+.opencode/agents/co-scientist.md). The endpoint/API tool loop in tools.py still
+has no approval action at all.
+"""
 
 import os
 import sys
@@ -17,7 +23,8 @@ def create_server(config_path=None):
     for name in (
         "list_campaigns", "start_campaign", "read_notebook", "add_note",
         "list_inputs", "list_examples", "save_experiment", "preview_experiment",
-        "submit_experiment", "list_jobs", "job_status", "collect_job",
+        "approve_experiment", "submit_experiment", "list_jobs", "job_status",
+        "job_progress", "collect_job",
         "inspect_results", "validate_motif", "validate_binder",
     ):
         mcp.add_tool(getattr(service, name))

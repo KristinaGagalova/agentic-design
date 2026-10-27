@@ -131,12 +131,14 @@ class ExperimentStore:
                 )
         return record
 
-    def approve(self, experiment_id: str) -> dict:
+    def approve(self, experiment_id: str, via: str = "cli") -> dict:
         record = self.load(experiment_id)
         approval = {
             "experiment_id": experiment_id,
             "digest": record["digest"],
             "approved_at": now(),
+            # Which human surface granted it; the digest check below is unchanged.
+            "approved_via": via,
         }
         atomic_json(self._path(experiment_id).with_name("approval.json"), approval)
         return approval

@@ -130,6 +130,31 @@ class ResearchService:
         self._require_experiment(campaign_id, experiment_id)
         return self._call(campaign_id, "preview_experiment", {"experiment_id": experiment_id})
 
+    def approve_experiment(self, campaign_id: str, experiment_id: str) -> dict:
+        """Record the researcher's approval of a saved experiment that they confirmed.
+
+        You do not hold approval authority. OpenCode is configured to ask the
+        researcher to confirm every call to this tool, and a denied confirmation
+        means the experiment stays unapproved. Show the spec, starting seed, input
+        snapshot, and command preview first, and report the result as their
+        decision rather than yours. Approval binds to the current spec digest, so
+        a changed spec needs a new experiment and a new confirmation.
+        """
+        self._require_experiment(campaign_id, experiment_id)
+        operation = uuid4().hex
+        arguments = {"experiment_id": experiment_id}
+        self.notebook.append(campaign_id, "tool_requested", "approve_experiment",
+                             {"operation": operation, "arguments": arguments})
+        try:
+            result = self.service.store.approve(experiment_id, via="opencode_confirmed")
+        except Exception as exc:
+            self.notebook.append(campaign_id, "tool_failed", "approve_experiment",
+                                 {"operation": operation, "error": type(exc).__name__, "message": str(exc)})
+            raise
+        self.notebook.append(campaign_id, "tool_result", "approve_experiment",
+                             {"operation": operation, "result": result})
+        return result
+
     def submit_experiment(self, campaign_id: str, experiment_id: str, submission_key: str) -> dict:
         """Submit a human-approved saved experiment. Reuse the key on retries.
 
@@ -151,6 +176,18 @@ class ResearchService:
         """Check and record job status. Completion alone does not validate a design."""
         self._require_job(campaign_id, run_id)
         return self._call(campaign_id, "job_status", {"run_id": run_id})
+
+    def job_progress(self, campaign_id: str, run_id: str) -> dict:
+        """Check and record how many designs a running job has written so far.
+
+        Use this to report partial progress instead of waiting silently. Report
+        the counts as written output, not as results: a written TRB/PDB pair has
+        not been collected, summarized, or checked, and `skipped_existing` above
+        zero means RFdiffusion reused existing files and the run is not fresh.
+        Collect and inspect only once the job state is completed.
+        """
+        self._require_job(campaign_id, run_id)
+        return self._call(campaign_id, "job_progress", {"run_id": run_id})
 
     def collect_job(self, campaign_id: str, run_id: str) -> dict:
         """Retrieve completed outputs, check fresh TRB/PDB pairs, and record their location."""

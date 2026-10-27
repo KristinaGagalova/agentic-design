@@ -121,6 +121,19 @@ TOOL_SCHEMAS = [
     {
         "type": "function",
         "function": {
+            "name": "job_progress",
+            "description": "Count designs already written by a running job. Read-only; written pairs are not verified designs.",
+            "parameters": {
+                "type": "object",
+                "required": ["run_id"],
+                "properties": {"run_id": {"type": "string"}},
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "collect_job",
             "description": "Collect and verify outputs for a completed job.",
             "parameters": {
@@ -243,6 +256,8 @@ class ToolRegistry:
             )
         if name == "job_status":
             return self.service.status(arguments["run_id"])
+        if name == "job_progress":
+            return self.service.progress(arguments["run_id"])
         if name == "collect_job":
             return self.service.collect(arguments["run_id"])
         if name == "inspect_results":

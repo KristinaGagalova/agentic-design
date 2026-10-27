@@ -92,8 +92,14 @@ def test_opencode_prepares_seeded_experiment_through_mcp(tmp_path):
     assert scientific
     for request in scientific:
         names = {t["function"]["name"] for t in request["tools"]}
-        assert not {"bash", "apply_patch", "task", "edit", "write"} & names
-        assert not any("approve" in name for name in names)
+        # Capability tools are offered, but every executing or mutating one is
+        # gated by an "ask" confirmation; test_capability_tools_stay_ask guards
+        # that, and this unattended run still ends with no approval.json and no
+        # job (both asserted above).
+        assert {"bash", "edit", "write", "read"} <= names
+        assert "research_approve_experiment" in names
+        # Delegation stays off: a subagent would not inherit the confirmations.
+        assert "task" not in names
         assert request["provider"] == cfg["provider"]["parameters"]["provider"]
     notes = list((Path(cfg["state"]["notebook_dir"]) / "offline-pilot/entries").glob("*.json"))
     entries = [json.loads(p.read_text()) for p in notes]

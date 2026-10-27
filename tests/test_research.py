@@ -7,6 +7,7 @@ import sys
 import tarfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -127,8 +128,10 @@ def test_research_mcp_stdio_roundtrip(tmp_path):
                 await session.initialize()
                 listing = await session.list_tools()
                 names = {t.name for t in listing.tools}
-                assert "save_experiment" in names and not any("approv" in name for name in names)
-                assert "submit_experiment" in names
+                assert "save_experiment" in names and "submit_experiment" in names
+                # Approval is reachable from OpenCode, but only behind an "ask"
+                # confirmation; test_approval_permission_stays_ask guards that.
+                assert "approve_experiment" in names
                 started = await session.call_tool("start_campaign", {"campaign_id": "mcp-pilot", "title": "Pilot", "question": "Question"})
                 assert not started.isError
                 saved = await session.call_tool("save_experiment", {
@@ -146,3 +149,117 @@ def test_research_mcp_stdio_roundtrip(tmp_path):
     experiment = json.loads((tmp_path / "state/experiments/x/experiment.json").read_text())
     assert experiment["spec"]["seed"] == 73
     assert not (tmp_path / "state/experiments/x/approval.json").exists()
+
+
+class ProgressTransport:
+    """A running job that has written one of two designs."""
+
+    def __init__(self, cfg, written=("motif_42",), partial=("motif_43",), skipped=0):
+        self.cfg = cfg
+        self.written, self.partial, self.skipped = written, partial, skipped
+
+    def upload(self, local, remote):
+        pass
+
+    def run(self, argv, **kwargs):
+        joined = " ".join(argv)
+        if argv[0] == "ls":
+            names = [f"{s}.trb" for s in self.written]
+            names += [f"{s}.pdb" for s in (*self.written, *self.partial)]
+            return SimpleNamespace(returncode=0, stdout="run.log\n" + "\n".join(names), stderr="")
+        if argv[0] == "grep":
+            return SimpleNamespace(returncode=0 if self.skipped else 1,
+                                   stdout=f"{self.skipped}\n", stderr="")
+        if argv[0] == "tail":
+            return SimpleNamespace(returncode=0, stdout="  50/50 timesteps\n", stderr="")
+        if argv[0] == "cat" and "result.json" in joined:
+            # Still running: no terminal result manifest yet.
+            return SimpleNamespace(returncode=1, stdout="", stderr="")
+        if argv[0] == "cat" and "worker-status.json" in joined:
+            return SimpleNamespace(returncode=0, stdout='{"pid": 4242}', stderr="")
+        # `kill -0` succeeds: the worker is alive, so the state stays "running".
+        return SimpleNamespace(returncode=0, stdout="4242\n", stderr="")
+
+
+def progress_job(tmp_path, transport):
+    service, _ = research(tmp_path)
+    service.service.transport_factory = transport
+    inputs = tmp_path / "inputs"
+    inputs.mkdir(exist_ok=True)
+    (inputs / "target.pdb").write_bytes(b"input")
+    service.start_campaign("prog", "Progress", "How far along is it?")
+    service.save_experiment("prog", {"name": "motif", "contigs": "[4-4]",
+                                     "input_pdb": "target.pdb", "seed": 42, "num_designs": 2},
+                            "Progress test", "No scientific claim")
+    service.service.store.approve("motif")
+    return service, service.submit_experiment("prog", "motif", "k1")["run_id"]
+
+
+def test_progress_counts_written_designs_without_collecting(tmp_path):
+    service, run_id = progress_job(tmp_path, ProgressTransport)
+    report = service.job_progress("prog", run_id)
+    assert report["designs_expected"] == 2
+    assert report["designs_written"] == 1
+    assert report["written_indices"] == [42]
+    assert report["in_progress_indices"] == [43]
+    assert report["pending_indices"] == []
+    assert report["collected"] is False
+    assert "50/50 timesteps" in report["last_log_line"]
+    # Progress must never stand in for verified results.
+    assert not (Path(service.service.results_root) / run_id).exists()
+    kinds = [(e["kind"], e["text"]) for e in service.notebook.read("prog")["entries"]]
+    assert ("tool_result", "job_progress") in kinds
+
+
+def test_progress_surfaces_cautious_mode_skips(tmp_path):
+    """RFdiffusion skipping existing designs exits 0 and must not read as progress."""
+    def skipping(cfg):
+        return ProgressTransport(cfg, written=("motif_42", "motif_43"), partial=(), skipped=2)
+    service, run_id = progress_job(tmp_path, skipping)
+    report = service.job_progress("prog", run_id)
+    assert report["designs_written"] == 2
+    assert report["skipped_existing"] == 2
+
+
+def _permission_sources():
+    """Both places that govern the co-scientist profile's permissions."""
+    repo = Path(__file__).resolve().parents[1]
+    project = json.loads((repo / "opencode.json").read_text())["permission"]
+    front = (repo / ".opencode/agents/co-scientist.md").read_text().split("---")[1]
+    return project, yaml.safe_load(front)["permission"]
+
+
+def test_approval_permission_stays_ask():
+    """The researcher must see a confirmation; `allow` would be silent self-approval."""
+    for permission in _permission_sources():
+        assert permission["research_approve_experiment"] == "ask"
+
+
+def test_capability_tools_stay_ask():
+    """The profile has a shell, so these confirmations are what protects approval.
+
+    With `bash` set to `allow` the agent could run the approve CLI, write
+    approval.json, or edit these permission files, and every other control in
+    this project would become advisory.
+    """
+    for permission in _permission_sources():
+        for tool in ("bash", "edit", "write", "patch", "apply_patch"):
+            assert permission[tool] == "ask", tool
+        assert permission["*"] == "deny"
+        # Delegation would run tool calls that never reach the researcher.
+        assert permission.get("task", "deny") == "deny"
+
+
+def test_approval_records_the_surface_that_granted_it(tmp_path):
+    """An approval carries how it was granted, and still binds to the spec digest."""
+    service, _ = research(tmp_path)
+    service.start_campaign("surface", "Surface", "Which surface approved it?")
+    service.save_experiment("surface", {"name": "s", "contigs": "[4-4]", "seed": 5},
+                            "Approval surface test", "No scientific claim")
+    approval = service.approve_experiment("surface", "s")
+    assert approval["approved_via"] == "opencode_confirmed"
+    record = service.service.store.load("s")
+    assert approval["digest"] == record["digest"]
+    # The notebook keeps the approval as a recorded tool result, not a silent write.
+    kinds = [(e["kind"], e["text"]) for e in service.notebook.read("surface")["entries"]]
+    assert ("tool_result", "approve_experiment") in kinds

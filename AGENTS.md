@@ -103,7 +103,33 @@ on the VM; they are not the endpoint orchestration workflow.
 Use POSIX paths for remote commands even on Windows. Contig strings contain
 spaces/brackets and must remain one argument across the SSH shell boundary.
 Retrieve outputs before local TRB inspection. Never infer success from a
-scheduler/process exit alone. Do not add a model-accessible approval tool.
+scheduler/process exit alone.
+
+**Approval reaches a human, through whichever surface they use.** The researcher
+asked (2026-10-27) to work entirely inside OpenCode, so the research MCP server
+exposes `approve_experiment` with OpenCode permission `ask`: the call surfaces as
+a confirmation prompt the researcher can deny. Keep that permission as `ask` in
+both `opencode.json` and `.opencode/agents/co-scientist.md`; setting it to
+`allow` would give the model silent self-approval. The endpoint/API tool loop in
+`agents/tools.py` and `src/agentic_design/tools.py` still has no approval action,
+and `tests/test_api_demo.py` holds that line.
+
+**The co-scientist profile has a shell, so approval is conventional, not
+enforced.** The researcher enabled `bash`, `read`, `edit`, `write`, and
+`apply_patch` on 2026-10-27, all set to `ask`. A shell can run the approve CLI,
+write `approval.json`, or edit these permission files, so the enforcement is
+gone and what remains is the agent's instructions plus the confirmation prompts.
+Consequences for anyone working here:
+
+- Keep every executing/mutating permission at `ask`. `test_capability_tools_stay_ask`
+  fails on `allow`. `task` stays `deny`: a subagent's calls bypass the prompts.
+- `tools:` in agent frontmatter is deprecated and silently ineffective in
+  OpenCode 1.18.32; `permission` is what enables a tool. The `tools` dict printed
+  by `opencode debug agent` is vestigial and reports `false` for tools that are
+  in fact offered to the model. Verify tool availability from the model-facing
+  tool list, as `tests/test_opencode.py` does, not from that dict.
+- Do not describe the profile as sandboxed. It is not. Real enforcement needs a
+  separate OS user or container, or reverting these permissions to `deny`.
 
 ## Invariants
 

@@ -23,8 +23,10 @@ __pycache__/
 .venv-wsl/
 *.egg-info/
 
-# Machine-specific connection details (host, key path).
+# Machine-specific connection details (host, key path) and API keys.
 project.env
+.env
+.env.local
 
 # Local co-scientist runtime.
 node_modules/

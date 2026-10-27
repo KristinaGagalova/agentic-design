@@ -39,7 +39,16 @@ There is no host or model API key shipped with the project.
 
 ## Review and run
 
-In another terminal, activate the environment and review the ID the agent gives:
+Approve inside OpenCode. Ask the co-scientist to approve the experiment and
+OpenCode shows a confirmation prompt naming the tool and experiment ID; accept
+or deny it there. The agent cannot approve silently: `research_approve_experiment`
+is configured with permission `ask`, so a denial leaves the experiment
+unapproved. Review the spec, seed, and command preview the agent shows you before
+accepting; the prompt itself is a confirmation, not a substitute for reading what
+you are approving. Approvals granted this way are recorded with
+`"approved_via": "opencode_confirmed"`.
+
+The equivalent CLI path still works if you prefer a separate terminal:
 
 ```bash
 source .venv-research/bin/activate
@@ -48,10 +57,27 @@ agentic-design experiment preview EXPERIMENT_ID
 agentic-design experiment approve EXPERIMENT_ID
 ```
 
-Then tell the co-scientist to submit that approved experiment. The service keeps
-the existing human approval rule. The OpenCode research profile has no shell,
-file-editing, or agent-delegation tools and cannot run the approval command.
-This is a configured tool boundary, not an operating-system sandbox.
+Either way the approval binds to the exact spec digest, and a changed spec needs
+a new experiment and a new approval.
+
+**The research profile has a shell, file editing, and arbitrary Python** (enabled
+2026-10-27), with `bash`, `edit`, `write`, and `apply_patch` set to `ask` so each
+command or write reaches you as a confirmation prompt. Agent delegation stays
+denied, because a subagent's calls would not reach you.
+
+Understand what that means for approval. A shell can run
+`agentic-design experiment approve`, write `approval.json`, or edit these
+permission files, so **approval is now a convention the agent is instructed to
+keep, not a boundary the system enforces.** Its prompt forbids self-approval,
+widening its own permissions, and rewriting the append-only records, and
+`tests/test_research.py` fails if any capability permission is changed to
+`allow`. None of that is an operating-system sandbox. If you need approval
+enforced rather than conventional, run the client as a separate user or in a
+container with no write access to `.agentic-design/`, or revert the capability
+permissions to `deny`.
+
+Read each confirmation prompt rather than accepting reflexively; on a long
+debugging session that is the weak point in this arrangement.
 
 The existing `limits.max_agent_submissions` defaults to one new submission per
 MCP process. Set it deliberately in local configuration if a session needs more
@@ -69,11 +95,19 @@ The saved spec includes the starting seed. The existing input snapshot and its
 SHA-256 identify the actual PDB bytes. Each remote submission also retains its
 small worker/input archive at `.agentic-design/jobs/<run-id>/execution-bundle.tar.gz`.
 
-You can inspect the notebook without an LLM:
+While a job runs, ask the co-scientist how far along it is and it reports the
+written/expected design counts, which indices are finished, which are still
+being written, and the last log line. Those are written files, not results:
+nothing is collected or checked until the job state is `completed`, and a
+nonzero `skipped_existing` means RFdiffusion reused existing outputs and the run
+is not fresh. There is no automatic polling; it checks when you ask.
+
+You can inspect the notebook and a running job without an LLM:
 
 ```bash
 agentic-design notebook list
 agentic-design notebook show ubq-pilot
+agentic-design job progress JOB_ID
 ```
 
 Close OpenCode whenever needed. Remote jobs continue. Open a new session and say:
@@ -84,6 +118,37 @@ Close OpenCode whenever needed. Remote jobs continue. Open a new session and say
 There is no always-running agent or automatic wakeup in this version. Actions
 performed outside the research tools are not automatically notebook entries;
 `list_jobs` discovers CLI-submitted jobs belonging to recorded experiments.
+
+## Result images and comparison plots
+
+Save generated result images under `results/`, in the corresponding collected
+run's output folder: `results/<run-id>/`. Do not use `/tmp/` as the delivery
+location for result figures.
+
+- For a single-run figure, use a new, descriptively named file or versioned
+  plotting subfolder within `results/<run-id>/`.
+- For a comparison spanning multiple runs, save it in a new versioned subfolder
+  of the latest contributing run's output folder, such as
+  `results/<latest-run-id>/comparison-<version>/`. Identify every contributing
+  run in the accompanying data and record the location in the campaign notebook.
+- Preserve append-only evidence: never overwrite or delete existing figures,
+  collected structures, logs, validation records, or input snapshots. Generate a
+  new filename/subfolder for each update.
+- Save PNG and, where practical, SVG versions together with the plotted data
+  (including source run IDs). Link the actual result-folder files in the reply.
+  Display the image when permissions permit; otherwise report that limitation.
+- Plot measured validation outputs only. Clearly label pending/unmeasured
+  conditions, thresholds, and failures; do not invent or silently omit results.
+
+The ubiquitin screening plotter accepts a new output directory, for example:
+
+```bash
+python3 scripts/plot_ubq_screen.py research/campaigns/ubq-pilot \
+  results/<latest-run-id>/comparison-v1
+```
+
+It reads recorded measurements without rerunning structural validation. Its
+Python interpreter must have Matplotlib installed.
 
 ## Repeating an experiment
 

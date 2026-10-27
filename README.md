@@ -351,8 +351,16 @@ The CLI can inspect state without a model request:
 agentic-design notebook show ubq-pilot
 agentic-design job list
 agentic-design job status JOB_ID
+agentic-design job progress JOB_ID
 agentic-design job collect JOB_ID
 ```
+
+`job progress` counts how many design indices a still-running job has written,
+which are in progress, and the last log line, without collecting anything. It
+reports written output, not results: a written TRB/PDB pair has not been
+collected or checked, and a nonzero `skipped_existing` means RFdiffusion reused
+existing files, so the run is not fresh. The co-scientist has the same
+information as `job_progress` and reports it in the session.
 
 Collection checks fresh expected TRB/PDB pairs. An exit code alone does not prove
 success. Notebook logging is automatic for research-tool actions; actions taken

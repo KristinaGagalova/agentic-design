@@ -38,7 +38,7 @@ def parser():
     submit = job.add_parser("submit")
     submit.add_argument("experiment_id")
     submit.add_argument("--submission-key")
-    for action in ("status", "collect"):
+    for action in ("status", "progress", "collect"):
         command = job.add_parser(action)
         command.add_argument("run_id")
     job.add_parser("list")
@@ -82,6 +82,8 @@ def main(argv=None):
             emit(service.submit(args.experiment_id, args.submission_key))
         elif args.action == "status":
             emit(service.status(args.run_id))
+        elif args.action == "progress":
+            emit(service.progress(args.run_id))
         elif args.action == "collect":
             emit(service.collect(args.run_id))
         elif args.action == "list":

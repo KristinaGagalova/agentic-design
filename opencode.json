@@ -6,9 +6,19 @@
   "permission": {
     "*": "deny",
     "research_*": "allow",
+    "research_approve_experiment": "ask",
     "question": "allow",
     "webfetch": "allow",
-    "websearch": "allow"
+    "websearch": "allow",
+    "read": "allow",
+    "glob": "allow",
+    "grep": "allow",
+    "todowrite": "allow",
+    "bash": "ask",
+    "edit": "ask",
+    "write": "ask",
+    "patch": "ask",
+    "apply_patch": "ask"
   },
   "agent": {
     "build": { "disable": true },
